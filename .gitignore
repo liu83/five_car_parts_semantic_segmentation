@@ -217,5 +217,8 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# Data folder
+# Customized folder
 /data
+/outputs
+/runs
+/.vscode
