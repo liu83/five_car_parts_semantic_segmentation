@@ -25,6 +25,7 @@ import argparse
 import json
 import math
 import random
+import time
 from pathlib import Path
 
 import albumentations as A
@@ -417,7 +418,16 @@ def main():
         default=12,
         help="Early stopping patience (epochs without val mIoU improvement).",
     )
-    parser.add_argument("--num_workers", type=int, default=4)
+    parser.add_argument(
+        "--num_workers",
+        type=int,
+        default=12,
+        help="DataLoader worker processes. Default of 12 assumes a modern "
+        "multi-core CPU (e.g. i7-14700K, 28 threads); lower this if you "
+        "see CPU contention with other processes. Per-epoch timing is "
+        "always printed in the training log, so you can check whether "
+        "increasing this further still helps.",
+    )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
         "--save_fp16",
@@ -520,8 +530,13 @@ def main():
     best_miou = -1.0
     epochs_without_improve = 0
     history = []
+    epoch_durations = []
+
+    training_start = time.time()
 
     for epoch in range(args.epochs):
+        epoch_start = time.time()
+
         # Unfreeze encoder after the warm-start phase and rebuild optimizer
         # with a lower encoder LR (differential fine-tuning).
         if epoch == args.freeze_epochs:
@@ -541,10 +556,18 @@ def main():
         )
         scheduler.step()
 
+        epoch_duration = time.time() - epoch_start
+        epoch_durations.append(epoch_duration)
+        avg_epoch_duration = sum(epoch_durations) / len(epoch_durations)
+        remaining_epochs = args.epochs - (epoch + 1)
+        eta_seconds = remaining_epochs * avg_epoch_duration
+
         current_lr = optimizer.param_groups[0]["lr"]
         print(
             f"Epoch {epoch + 1}/{args.epochs} | lr={current_lr:.2e} "
-            f"| train_loss={train_loss:.4f} | val_loss={val_loss:.4f} | val_mIoU={mean_iou:.4f}"
+            f"| train_loss={train_loss:.4f} | val_loss={val_loss:.4f} | val_mIoU={mean_iou:.4f} "
+            f"| epoch_time={epoch_duration:.1f}s | avg={avg_epoch_duration:.1f}s/epoch "
+            f"| ETA={eta_seconds / 60:.1f}min (if run to --epochs, ignoring early stopping)"
         )
         for name, iou in zip(CLASS_NAMES, per_class_iou):
             print(f"    {name:15s} IoU={iou:.4f}")
@@ -555,6 +578,7 @@ def main():
                 "train_loss": train_loss,
                 "val_loss": val_loss,
                 "val_mIoU": mean_iou,
+                "epoch_seconds": epoch_duration,
                 "per_class_iou": dict(zip(CLASS_NAMES, per_class_iou.tolist())),
             }
         )
@@ -578,10 +602,15 @@ def main():
                 )
                 break
 
+    total_training_time = time.time() - training_start
     with open(output_dir / "training_history.json", "w") as f:
         json.dump(history, f, indent=2)
 
-    print(f"Training complete. Best val mIoU: {best_miou:.4f}")
+    print(
+        f"Training complete in {total_training_time / 60:.1f} minutes "
+        f"({len(epoch_durations)} epochs run, avg {sum(epoch_durations) / len(epoch_durations):.1f}s/epoch)."
+    )
+    print(f"Best val mIoU: {best_miou:.4f}")
     print(f"Best model saved to: {output_dir / 'best_model.pth'}")
 
 
