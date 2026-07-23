@@ -15,7 +15,7 @@ uv add tensorboard
 2. Run training as normal — it now writes logs to runs/ (configurable via --log_dir):
 
 ```bash
-uv run python3 train.py --images_dir data/images --masks_dir data/masks
+uv run python train.py --images_dir data/images --masks_dir data/masks --pad_to_square
 ```
 3. In a separate terminal, launch the dashboard:
 

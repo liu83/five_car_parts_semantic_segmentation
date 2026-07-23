@@ -369,7 +369,7 @@ def save_run_config(
                 if torch.cuda.is_available()
                 else None
             ),
-            "torch_version": torch.__version__,
+            "torch_version": str(torch.__version__),
             "num_train_images": num_train,
             "num_val_images": num_val,
         },
