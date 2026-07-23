@@ -5,6 +5,18 @@ description = "Semantic segmentation of five car parts using deep learning techn
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "albumentations>=2.0.8",
     "numpy>=2.5.1",
     "pillow>=12.3.0",
+    "torch==2.11.0",
+    "torchvision==0.26.0",
 ]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchvision = { index = "pytorch-cu128" }
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
