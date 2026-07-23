@@ -26,7 +26,10 @@ import json
 import math
 import random
 import time
+from datetime import datetime
 from pathlib import Path
+
+import yaml
 
 import albumentations as A
 import cv2
@@ -349,6 +352,49 @@ def build_scheduler(optimizer, total_epochs, warmup_epochs):
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+def save_run_config(
+    args, device, output_dir: Path, num_train: int, num_val: int
+):
+    """Save every training hyperparameter plus key environment/reproducibility
+    details to a YAML file, so a specific run's exact configuration is always
+    recoverable later -- not just implicitly encoded in whatever CLI command
+    happened to be typed.
+    """
+    config = {
+        "run_info": {
+            "timestamp": datetime.now().isoformat(timespec="seconds"),
+            "device": str(device),
+            "cuda_device_name": (
+                torch.cuda.get_device_name(0)
+                if torch.cuda.is_available()
+                else None
+            ),
+            "torch_version": torch.__version__,
+            "num_train_images": num_train,
+            "num_val_images": num_val,
+        },
+        "model": {
+            "architecture": "Unet",
+            "encoder": "resnet34",
+            "encoder_weights": "imagenet",
+            "num_classes": NUM_CLASSES,
+            "class_names": CLASS_NAMES,
+            "label_values": LABEL_VALUES,
+        },
+        "hyperparameters": vars(args),
+    }
+
+    config_path = (
+        output_dir
+        / f"config_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.yaml"
+    )
+    with open(config_path, "w") as f:
+        yaml.safe_dump(config, f, sort_keys=False, default_flow_style=False)
+
+    print(f"Run configuration saved to: {config_path}")
+    return config_path
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Train car part segmentation model"
@@ -469,6 +515,14 @@ def main():
         args.seed,
     )
     print(f"Train: {len(train_images)} images | Val: {len(val_images)} images")
+
+    save_run_config(
+        args,
+        device,
+        output_dir,
+        num_train=len(train_images),
+        num_val=len(val_images),
+    )
 
     crop_to_bbox = not args.no_bbox_crop
     train_ds = CarPartsDataset(
