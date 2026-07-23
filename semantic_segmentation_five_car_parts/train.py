@@ -37,6 +37,7 @@ import torch.nn as nn
 from albumentations.pytorch import ToTensorV2
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
+from torch.utils.tensorboard import SummaryWriter
 
 from bbox_utils import crop_to_object
 
@@ -186,6 +187,11 @@ def get_transforms(train: bool, img_size: int, pad_to_square: bool = False):
 def split_dataset(
     images_dir: Path, masks_dir: Path, val_fraction: float, seed: int
 ):
+    # TODO consider splitting train and val dataset based on class distribution,
+    # to ensure that both splits have a similar distribution of classes.
+    # This can help in training a more robust model and avoid overfitting to
+    # a particular class distribution in the training set.
+
     image_files = sorted(images_dir.glob("*.jpg"))
     pairs = []
     for img_path in image_files:
@@ -351,6 +357,13 @@ def main():
     parser.add_argument("--masks_dir", type=str, default="data/masks")
     parser.add_argument("--output_dir", type=str, default="outputs")
     parser.add_argument(
+        "--log_dir",
+        type=str,
+        default="runs",
+        help="TensorBoard log directory. View live during/after training with: "
+        "tensorboard --logdir runs  (then open http://localhost:6006)",
+    )
+    parser.add_argument(
         "--img_size",
         type=int,
         default=512,
@@ -442,6 +455,11 @@ def main():
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    # TensorBoard: local-only metrics dashboard. No data leaves the machine —
+    # important given the dataset's confidentiality requirement. View live at
+    # http://localhost:6006 while training runs, via: tensorboard --logdir runs
+    writer = SummaryWriter(log_dir=args.log_dir)
 
     # --- Data split ---
     train_images, train_masks, val_images, val_masks = split_dataset(
@@ -583,6 +601,15 @@ def main():
             }
         )
 
+        # --- TensorBoard logging ---
+        writer.add_scalar("Loss/train", train_loss, epoch + 1)
+        writer.add_scalar("Loss/val", val_loss, epoch + 1)
+        writer.add_scalar("IoU/mean_val", mean_iou, epoch + 1)
+        for name, iou in zip(CLASS_NAMES, per_class_iou):
+            writer.add_scalar(f"IoU_per_class/{name}", iou, epoch + 1)
+        writer.add_scalar("LR/current", current_lr, epoch + 1)
+        writer.add_scalar("Time/epoch_seconds", epoch_duration, epoch + 1)
+
         if mean_iou > best_miou:
             best_miou = mean_iou
             epochs_without_improve = 0
@@ -605,6 +632,7 @@ def main():
     total_training_time = time.time() - training_start
     with open(output_dir / "training_history.json", "w") as f:
         json.dump(history, f, indent=2)
+    writer.close()
 
     print(
         f"Training complete in {total_training_time / 60:.1f} minutes "
