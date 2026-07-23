@@ -406,6 +406,9 @@ def main():
     parser.add_argument(
         "--output_dir", type=str, default="results/training_outputs"
     )
+
+    # TODO does it make sense to enlarge the img_size to 640?
+
     parser.add_argument(
         "--img_size",
         type=int,
@@ -490,6 +493,21 @@ def main():
         action="store_true",
         help="Save the final best checkpoint in fp16 to reduce file size.",
     )
+    parser.add_argument(
+        "--resume_from",
+        type=str,
+        default=None,
+        help="Path to a previous best_model.pth to initialize weights from "
+        "(e.g. to continue training with more epochs or a fresh LR "
+        "schedule -- a 'warm restart'). Automatically skips the "
+        "encoder-freeze warm-start phase, since the encoder is already "
+        "fine-tuned. This does NOT restore optimizer/scheduler state or "
+        "epoch count -- it starts a fresh optimizer and LR schedule "
+        "initialized from these weights, which is the standard and "
+        "usually preferable way to continue: it lets the model escape "
+        "the exact minimum it settled into and potentially find a better "
+        "one, rather than just resuming an already-annealed-to-near-zero LR.",
+    )
     args = parser.parse_args()
 
     set_seed(args.seed)
@@ -498,7 +516,7 @@ def main():
 
     datetime_stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
-    output_dir = Path(args.output_dir) / (f"training_run_{datetime_stamp}")
+    output_dir = Path(args.output_dir) / (f"training_run_{datetime_stamp}/")
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # TensorBoard: local-only metrics dashboard. No data leaves the machine —
@@ -562,17 +580,49 @@ def main():
     class_weights = compute_class_weights(train_masks).to(device)
     criterion = DiceCELoss(class_weights)
 
+    # TODO what about using resnet50 as encoder?
+    # It has more parameters and might improve performance, but it will also
+    # increase training time and memory usage. We can experiment with both
+    # resnet34 and resnet50 to see which one gives better results for our specific dataset.
+
     # --- Model ---
     model = smp.Unet(
         encoder_name="resnet34",
-        encoder_weights="imagenet",
+        encoder_weights="imagenet",  # overwritten below if --resume_from is set
         in_channels=3,
         classes=NUM_CLASSES,
     ).to(device)
 
+    resumed = args.resume_from is not None
+    if resumed:
+        resume_path = Path(args.resume_from)
+        state_dict = torch.load(resume_path, map_location=device)
+        # Checkpoints saved with --save_fp16 store half-precision weights; training
+        # itself always keeps fp32 master weights (AMP only autocasts internally),
+        # so upcast before loading if needed.
+        first_dtype = next(iter(state_dict.values())).dtype
+        if first_dtype == torch.float16:
+            state_dict = {k: v.float() for k, v in state_dict.items()}
+            print(
+                f"Resuming from {resume_path} (stored as fp16, upcast to fp32 for training)."
+            )
+        else:
+            print(f"Resuming from {resume_path} (fp32 weights).")
+        model.load_state_dict(state_dict)
+
     # Freeze encoder initially: train decoder/head on top of pretrained features.
-    for param in model.encoder.parameters():
-        param.requires_grad = False
+    # Skipped when resuming -- the encoder is already fine-tuned, so re-freezing
+    # it would waste epochs re-deriving what it already learned. --freeze_epochs
+    # is ignored in this case (a notice is printed below if it was set non-zero).
+    if not resumed:
+        for param in model.encoder.parameters():
+            param.requires_grad = False
+    effective_freeze_epochs = -1 if resumed else args.freeze_epochs
+    if resumed and args.freeze_epochs != 0:
+        print(
+            f"Note: --freeze_epochs={args.freeze_epochs} is ignored because "
+            f"--resume_from was set; encoder starts unfrozen."
+        )
 
     def build_optimizer(encoder_frozen: bool):
         if encoder_frozen:
@@ -595,7 +645,11 @@ def main():
             ]
         return torch.optim.AdamW(params, weight_decay=args.weight_decay)
 
-    optimizer = build_optimizer(encoder_frozen=True)
+    # A resumed run starts a FRESH optimizer + LR schedule from full peak LR
+    # (a "warm restart") rather than continuing the previous run's annealed,
+    # near-zero LR -- this gives the model a real chance to move away from
+    # the minimum it settled into, instead of just polishing it further.
+    optimizer = build_optimizer(encoder_frozen=not resumed)
     scheduler = build_scheduler(optimizer, args.epochs, args.warmup_epochs)
     scaler = torch.cuda.amp.GradScaler()
 
@@ -610,8 +664,10 @@ def main():
         epoch_start = time.time()
 
         # Unfreeze encoder after the warm-start phase and rebuild optimizer
-        # with a lower encoder LR (differential fine-tuning).
-        if epoch == args.freeze_epochs:
+        # with a lower encoder LR (differential fine-tuning). Never triggers
+        # on a resumed run (effective_freeze_epochs == -1), since the encoder
+        # already starts unfrozen in that case.
+        if epoch == effective_freeze_epochs:
             print(f"Epoch {epoch}: unfreezing encoder for fine-tuning.")
             for param in model.encoder.parameters():
                 param.requires_grad = True
