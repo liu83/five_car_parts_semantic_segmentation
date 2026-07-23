@@ -219,6 +219,5 @@ __marimo__/
 
 # Customized folder
 /data
-/outputs
-/runs
+/results
 /.vscode

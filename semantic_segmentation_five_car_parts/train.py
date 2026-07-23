@@ -353,7 +353,12 @@ def build_scheduler(optimizer, total_epochs, warmup_epochs):
 # Main
 # ---------------------------------------------------------------------------
 def save_run_config(
-    args, device, output_dir: Path, num_train: int, num_val: int
+    args,
+    device,
+    output_dir: Path,
+    datetime_stamp: str,
+    num_train: int,
+    num_val: int,
 ):
     """Save every training hyperparameter plus key environment/reproducibility
     details to a YAML file, so a specific run's exact configuration is always
@@ -384,10 +389,7 @@ def save_run_config(
         "hyperparameters": vars(args),
     }
 
-    config_path = (
-        output_dir
-        / f"config_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.yaml"
-    )
+    config_path = output_dir / f"config_{datetime_stamp}.yaml"
     with open(config_path, "w") as f:
         yaml.safe_dump(config, f, sort_keys=False, default_flow_style=False)
 
@@ -401,13 +403,8 @@ def main():
     )
     parser.add_argument("--images_dir", type=str, default="data/images")
     parser.add_argument("--masks_dir", type=str, default="data/masks")
-    parser.add_argument("--output_dir", type=str, default="outputs")
     parser.add_argument(
-        "--log_dir",
-        type=str,
-        default="runs",
-        help="TensorBoard log directory. View live during/after training with: "
-        "tensorboard --logdir runs  (then open http://localhost:6006)",
+        "--output_dir", type=str, default="results/training_outputs"
     )
     parser.add_argument(
         "--img_size",
@@ -499,13 +496,15 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
-    output_dir = Path(args.output_dir)
+    datetime_stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
+    output_dir = Path(args.output_dir) / (f"training_run_{datetime_stamp}")
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # TensorBoard: local-only metrics dashboard. No data leaves the machine —
     # important given the dataset's confidentiality requirement. View live at
     # http://localhost:6006 while training runs, via: tensorboard --logdir runs
-    writer = SummaryWriter(log_dir=args.log_dir)
+    writer = SummaryWriter(log_dir=output_dir)
 
     # --- Data split ---
     train_images, train_masks, val_images, val_masks = split_dataset(
@@ -520,6 +519,7 @@ def main():
         args,
         device,
         output_dir,
+        datetime_stamp,
         num_train=len(train_images),
         num_val=len(val_images),
     )
@@ -684,7 +684,10 @@ def main():
                 break
 
     total_training_time = time.time() - training_start
-    with open(output_dir / "training_history.json", "w") as f:
+    with open(
+        output_dir / f"training_history_{datetime_stamp}.json",
+        "w",
+    ) as f:
         json.dump(history, f, indent=2)
     writer.close()
 

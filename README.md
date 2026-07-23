@@ -15,12 +15,22 @@ uv add tensorboard
 2. Run training as normal — it now writes logs to runs/ (configurable via --log_dir):
 
 ```bash
-uv run python train.py --images_dir data/images --masks_dir data/masks --pad_to_square
+uv run python train.py --images_dir data/train/images --masks_dir data/train/masks --pad_to_square
 ```
 3. In a separate terminal, launch the dashboard:
 
 ```bash
-uv run tensorboard --logdir runs
+uv run tensorboard --logdir results/training_outputs/training_runs
+```
+
+## Inference
+```bash
+uv run python semantic_segmentation_five_car_parts/inference.py --input data/test/images --output data/test/masks --config_path outputs/config_2026-07-23_16-22-38.yaml
+```
+
+Check inference results
+```bash
+uv run python semantic_segmentation_five_car_parts/check_predictions.py --images_dir data/test/images/ --masks_dir data/test/masks/ --output_dir data/test/check_predictions
 ```
 
 
@@ -59,3 +69,6 @@ If that last line runs without a `no kernel image error` and prints `4.0`, you'r
 
 
 
+## Lessons-learned
+1. Plausible, genuinely good explanation: Door handles likely have strong local visual contrast (different material/color against a painted door panel) and a fairly consistent shape/location — easy for a CNN to localize precisely once detected. Meanwhile, Front Door/Rear Door/Fender boundaries are often subtle body-panel creases against each other, not against a clean background — genuinely harder to delineate with pixel-precision even though they're "big, easy" classes on paper. Your Dice+CE weighting strategy may have simply worked exactly as designed here.
+2. Epoch 59 of a 60-epoch budget — this means early stopping (patience=12) never triggered, so val mIoU was still improving (or at least hadn't plateaued for 12 straight epochs) right up to your cap. That's actually good news framed one way ("didn't need early stopping, model kept legitimately improving") but also means you may be leaving performance on the table — if you'd had --epochs 100, it's plausible mIoU keeps climbing further. Worth checking the TensorBoard IoU/mean_val curve's trend in the last 10-15 epochs: if it's still trending up (not flattened), that's your strongest lever for a meaningful improvement with minimal extra effort — just extend the epoch budget and rerun.
