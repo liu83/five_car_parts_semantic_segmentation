@@ -1,0 +1,14 @@
+Total masks scanned: 600
+
+Label  Class             # Images   % Images    Pixel Count   % Pixels
+----------------------------------------------------------------------
+    0  Background             600     100.0%     4164548304      67.5%
+   32  Front Door             313      52.2%      749786779      12.1%
+   64  Rear Door              297      49.5%      648533540      10.5%
+   96  Front Fender           177      29.5%      148719346       2.4%
+  128  Rear Fender            364      60.7%      434946308       7.0%
+  160  Door Handle            315      52.5%       25208379       0.4%
+
+"# Images" = how many of the 600 masks contain at least one pixel of that class;
+"% Pixels" = share of total labeled pixels.
+No unexpected label values were found.
