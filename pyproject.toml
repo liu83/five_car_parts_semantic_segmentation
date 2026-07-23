@@ -1,0 +1,10 @@
+[project]
+name = "five-car-parts-semantic-segmentation"
+version = "0.1.0"
+description = "Semantic segmentation of five car parts using deep learning techniques."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2.5.1",
+    "pillow>=12.3.0",
+]
