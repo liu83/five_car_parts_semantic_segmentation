@@ -28,6 +28,7 @@ import random
 from pathlib import Path
 
 import albumentations as A
+import cv2
 import numpy as np
 import segmentation_models_pytorch as smp
 import torch
@@ -35,6 +36,8 @@ import torch.nn as nn
 from albumentations.pytorch import ToTensorV2
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
+
+from bbox_utils import crop_to_object
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -64,10 +67,21 @@ def set_seed(seed: int):
 # Dataset
 # ---------------------------------------------------------------------------
 class CarPartsDataset(Dataset):
-    def __init__(self, image_paths, mask_paths, transform):
+    def __init__(
+        self,
+        image_paths,
+        mask_paths,
+        transform,
+        crop_to_bbox: bool = True,
+        bbox_threshold: float = 20.0,
+        bbox_margin: float = 0.03,
+    ):
         self.image_paths = image_paths
         self.mask_paths = mask_paths
         self.transform = transform
+        self.crop_to_bbox = crop_to_bbox
+        self.bbox_threshold = bbox_threshold
+        self.bbox_margin = bbox_margin
 
     def __len__(self):
         return len(self.image_paths)
@@ -81,20 +95,61 @@ class CarPartsDataset(Dataset):
         for value, index in VALUE_TO_INDEX.items():
             mask[mask_raw == value] = index
 
+        # Crop out the large surrounding background canvas BEFORE resizing.
+        # This concentrates resolution on the car itself (e.g. more pixels
+        # per Door Handle) instead of wasting them on empty background.
+        # Same function is used in inference.py so train/test preprocessing
+        # stays identical.
+        if self.crop_to_bbox:
+            image, mask, _ = crop_to_object(
+                image,
+                mask,
+                threshold=self.bbox_threshold,
+                margin_frac=self.bbox_margin,
+            )
+
         augmented = self.transform(image=image, mask=mask)
         image_t = augmented["image"]
         mask_t = augmented["mask"].long()
         return image_t, mask_t
 
 
-def get_transforms(train: bool, img_size: int):
+def get_resize_block(img_size: int, pad_to_square: bool):
+    """Two supported resize strategies, chosen via --pad_to_square:
+
+    1. Plain Resize(img_size, img_size) [default]: stretches to a square.
+       Fine here since crops are already close to square (~1.09 aspect
+       ratio for the raw 3000x3264 images), so distortion is mild.
+
+    2. Letterbox (LongestMaxSize + PadIfNeeded): preserves aspect ratio
+       exactly by scaling the longest side to img_size and padding the
+       rest with background (value=0, i.e. class index 0 on the mask,
+       which is semantically correct since it IS background). Avoids any
+       shape distortion at the cost of some wasted padding pixels.
+    """
+    if pad_to_square:
+        return [
+            A.LongestMaxSize(max_size=img_size),
+            A.PadIfNeeded(
+                min_height=img_size,
+                min_width=img_size,
+                border_mode=cv2.BORDER_CONSTANT,
+                value=0,
+                mask_value=0,
+            ),
+        ]
+    return [A.Resize(img_size, img_size)]
+
+
+def get_transforms(train: bool, img_size: int, pad_to_square: bool = False):
     mean = (0.485, 0.456, 0.406)  # ImageNet stats, matches pretrained encoder
     std = (0.229, 0.224, 0.225)
+    resize_block = get_resize_block(img_size, pad_to_square)
 
     if train:
         return A.Compose(
-            [
-                A.Resize(img_size, img_size),
+            resize_block
+            + [
                 A.HorizontalFlip(p=0.5),
                 A.ShiftScaleRotate(
                     shift_limit=0.05,
@@ -119,8 +174,8 @@ def get_transforms(train: bool, img_size: int):
         )
     else:
         return A.Compose(
-            [
-                A.Resize(img_size, img_size),
+            resize_block
+            + [
                 A.Normalize(mean=mean, std=std),
                 ToTensorV2(),
             ]
@@ -130,9 +185,6 @@ def get_transforms(train: bool, img_size: int):
 def split_dataset(
     images_dir: Path, masks_dir: Path, val_fraction: float, seed: int
 ):
-    # TODO maybe consider class distribution when splitting,
-    # but for now just random shuffle
-
     image_files = sorted(images_dir.glob("*.jpg"))
     pairs = []
     for img_path in image_files:
@@ -300,8 +352,41 @@ def main():
     parser.add_argument(
         "--img_size",
         type=int,
-        default=384,
-        help="Square resolution used for training/inference.",
+        default=512,
+        help="Square resolution used for training/inference. "
+        "Must be divisible by 32 (U-Net/ResNet34 constraint). "
+        "512 chosen over 384 because source images are ~3000x3264 "
+        "and Door Handle is a thin, detail-sensitive class that "
+        "loses too much definition under more aggressive downsampling.",
+    )
+    parser.add_argument(
+        "--pad_to_square",
+        action="store_true",
+        help="Letterbox resize (preserve aspect ratio, pad with background) "
+        "instead of a plain stretch-to-square Resize. Optional here since "
+        "the raw images are already close to square (~1.09 ratio).",
+    )
+    parser.add_argument(
+        "--no_bbox_crop",
+        action="store_true",
+        help="Disable cropping to the detected car bounding box before "
+        "resizing. Cropping is ON by default: source images have a lot "
+        "of empty background canvas, and removing it before resizing "
+        "concentrates resolution on the car itself.",
+    )
+    parser.add_argument(
+        "--bbox_threshold",
+        type=float,
+        default=20.0,
+        help="Per-pixel color-distance threshold (summed abs diff over RGB) "
+        "used to separate foreground (car) from background canvas.",
+    )
+    parser.add_argument(
+        "--bbox_margin",
+        type=float,
+        default=0.03,
+        help="Extra margin added around the detected bounding box, as a "
+        "fraction of box size, to avoid clipping part edges.",
     )
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--epochs", type=int, default=60)
@@ -357,11 +442,22 @@ def main():
     )
     print(f"Train: {len(train_images)} images | Val: {len(val_images)} images")
 
+    crop_to_bbox = not args.no_bbox_crop
     train_ds = CarPartsDataset(
-        train_images, train_masks, get_transforms(True, args.img_size)
+        train_images,
+        train_masks,
+        get_transforms(True, args.img_size, args.pad_to_square),
+        crop_to_bbox=crop_to_bbox,
+        bbox_threshold=args.bbox_threshold,
+        bbox_margin=args.bbox_margin,
     )
     val_ds = CarPartsDataset(
-        val_images, val_masks, get_transforms(False, args.img_size)
+        val_images,
+        val_masks,
+        get_transforms(False, args.img_size, args.pad_to_square),
+        crop_to_bbox=crop_to_bbox,
+        bbox_threshold=args.bbox_threshold,
+        bbox_margin=args.bbox_margin,
     )
 
     train_loader = DataLoader(
