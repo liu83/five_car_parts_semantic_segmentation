@@ -287,7 +287,7 @@ def save_inference_report(
         "run_info": {
             "timestamp": datetime.now().isoformat(timespec="seconds"),
             "input_dir": str(args.input),
-            "output_dir": str(args.output),
+            "output_dir": str(args.output_dir),
             "model_path": str(model_path),
             "config_path_used": (
                 str(config_path) if config_path.exists() else None
