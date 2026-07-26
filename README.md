@@ -59,16 +59,25 @@ Command to run the script:
 ```bash
 uv run python semantic_segmentation_five_car_parts/class_statistics.py
 ```
-The class statistics are in file `semantic_segmentation_five_car_parts/class_statistics_report` and `semantic_segmentation_five_car_parts/class_statistics_report.json`
-
 
 ### Crop Images
-Images in the given dataset (both `/train` and `/test`) have large area of background, which is irrelevant for semantic segmentation of car parts and can be removed for training and testing.
 Script `bbox_utils.py` includes functions to compute bounding box that covers only car parts and background nearby, and excludes other surrounding background. This functionality will be used in creating PyTorch Dataset for training.
 
-Script `check_crops.py` visualizes this cropping functionality on several sample images.
+Script `check_crops.py` visualizes this cropping functionality on several sample images. Example command:
+```bash
+uv run python semantic_segmentation_five_car_parts/check_crops.py \
+    --images_dir data/train/images/ \
+    --output_dir data/cropped_samples/ \
+    --num_samples 6
+```
 
-Script `crop_dataset.py` computes all cropped images and masks in the training dataset. It saves them as well for further checks.
+Script `crop_dataset.py` computes all cropped images and masks in the training dataset. It saves them as well for further checks. Example command:
+```bash
+uv run python semantic_segmentation_five_car_parts/crop_dataset.py \
+    --images_dir data/train/images/ \
+    --masks_dir data/train/masks/ \
+    --output_dir data/cropped
+```
 
 ### Image Augmentation
 For a robust training result and to enrich training dataset with limited amount, image augmentation is applied within `train.py`. Script `check_augmentations.py` visualizes augmentation results by running:
@@ -83,12 +92,12 @@ Augmentated images will be saved in the `output_dir`.
 ## Training
 Run following command to start training the model:
 ```bash
-uv run python train.py \
+uv run python semantic_segmentation_five_car_parts/train.py \
     --images_dir data/train/images \
     --masks_dir data/train/masks \
     --pad_to_square
 ```
-See script `train.py` for possible parameter configuration.
+See script `train.py` for more possible parameter configuration.
 
 ### Monitor Training Process using TensorBoard
 During training, launch the dashboard in a separate terminal:
@@ -112,22 +121,22 @@ After training is finished, script `inference.py` can be called to run inference
 ```bash
 uv run python semantic_segmentation_five_car_parts/inference.py \
     --input data/test/images \
-    --output data/test/masks \
-    --config_path results/training_outputs/training_run_2026-07-23_19-15-23/config_2026-07-23_19-15-23.yaml
+    --output_dir results_submission/predictions/masks/ \
+    --config_path results_submission/training_run_02_resumed/train_config_2026-07-23_19-15-23.yaml \
+    --model_path results_submission/training_run_02_resumed/best_model.pth \
+    --report_path results_submission/training_run_02_resumed/inference_report.yaml
 ```
-Inference results (image masks) are saved in the output directory.
+Inference results (image masks) are saved in the output directory `results_submission/predictions`.
 
 ### Visualize Inference Results
 Script `check_predictions.py` visualizes the inference results by overlaying the predicted masks on the images. Run:
 ```bash
 uv run python semantic_segmentation_five_car_parts/check_predictions.py \
     --images_dir data/test/images/ \
-    --masks_dir data/test/masks/ \
-    --output_dir data/test/check_predictions
+    --masks_dir results_submission/predictions/masks/ \
+    --output_dir results_submission/predictions/masked_images
 ```
-Images with predicted masks can be found in `output_dir`.
-
-
+Images with predicted masks can be found in `results_submission/predictions/masked_images`.
 
 
 
