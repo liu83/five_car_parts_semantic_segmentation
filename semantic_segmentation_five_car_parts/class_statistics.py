@@ -82,10 +82,16 @@ def print_report(stats: dict) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--masks-dir",
+        "--masks_dir",
         type=Path,
         default=Path("data/train/masks"),
         help="Directory containing mask .png files (default: data/train/masks)",
+    )
+    parser.add_argument(
+        "--output_file",
+        type=Path,
+        default=Path("class_statistics_report.json"),
+        help="File to save the statistics report (default: class_statistics_report.json)",
     )
     args = parser.parse_args()
 
@@ -96,7 +102,8 @@ def main() -> None:
     import json
 
     with open(
-        "semantic_segmentation_five_car_parts/class_statistics_report.json", "w"
+        args.output_file,
+        "w",
     ) as f:
         json.dump(stats, f, indent=4)
 

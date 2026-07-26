@@ -7,7 +7,7 @@ Image and mask are cropped to the SAME box (derived from the image only,
 never the mask) so they stay pixel-aligned. Filenames are preserved.
 
 Usage:
-    python3 crop_dataset.py --images_dir ../data/train/images --masks_dir ../data/train/masks \
+    python crop_dataset.py --images_dir ../data/train/images --masks_dir ../data/train/masks \
         --output_dir ../data/cropped --bbox_threshold 20.0 --bbox_margin 0.03
 """
 
@@ -18,7 +18,10 @@ import numpy as np
 from tqdm import tqdm
 from PIL import Image
 
-from bbox_utils import compute_foreground_bbox, estimate_background_color
+from bbox_utils import (
+    compute_foreground_bbox,
+    estimate_background_color,
+)
 
 
 def main():
