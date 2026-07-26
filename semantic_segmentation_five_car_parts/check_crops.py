@@ -1,25 +1,14 @@
 """
 check_crops.py — visualize the bounding-box crop on a sample of real
-training images, so you can eyeball whether --bbox_threshold and
+training images for visual inspection, to check whether --bbox_threshold and
 --bbox_margin need adjusting before committing to a full training run.
 
 For each sampled image, saves a side-by-side PNG:
     [ original image with bbox drawn ]  [ cropped result ]
 
 Usage:
-    python3 check_crops.py --images_dir data/images --masks_dir data/masks \
+    python check_crops.py --images_dir data/images --masks_dir data/masks \
         --output_dir crop_checks --num_samples 12
-
-Look for:
-    - Box too tight / clipping a visible part edge -> increase --bbox_margin
-      or lower --bbox_threshold (background wasn't fully separated).
-    - Box too loose / lots of background still inside -> increase
-      --bbox_threshold (background color estimate is being confused with
-      some car pixels), or the background isn't uniform enough for this
-      simple color-distance method.
-    - Box wildly wrong (e.g. covers < 20% or > 95% of the image) -> flag
-      that specific image, likely a background color edge case worth
-      inspecting individually (e.g. reflective/shiny background artifacts).
 """
 
 import argparse
@@ -29,7 +18,10 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw
 
-from bbox_utils import compute_foreground_bbox, estimate_background_color
+from bbox_utils import (
+    compute_foreground_bbox,
+    estimate_background_color,
+)
 
 LABEL_VALUES = [0, 32, 64, 96, 128, 160]
 

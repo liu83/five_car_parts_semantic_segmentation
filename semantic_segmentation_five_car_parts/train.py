@@ -5,8 +5,8 @@ Classes: 0=Background, 32=Front Door, 64=Rear Door, 96=Front Fender,
          128=Rear Fender, 160=Door Handle
 
 Usage:
-    python3 train.py --images_dir data/images --masks_dir data/masks \
-        --output_dir outputs --epochs 60 --img_size 384
+    python train.py --images_dir data/images --masks_dir data/masks \
+        --output_dir outputs --epochs 60 --img_size 512
 
 Design notes (see README for full justification):
     - 90/10 train/val split, seeded for reproducibility.
@@ -349,9 +349,6 @@ def build_scheduler(optimizer, total_epochs, warmup_epochs):
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
 
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
 def save_run_config(
     args,
     device,
@@ -397,6 +394,9 @@ def save_run_config(
     return config_path
 
 
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 def main():
     parser = argparse.ArgumentParser(
         description="Train car part segmentation model"
@@ -404,7 +404,10 @@ def main():
     parser.add_argument("--images_dir", type=str, default="data/images")
     parser.add_argument("--masks_dir", type=str, default="data/masks")
     parser.add_argument(
-        "--output_dir", type=str, default="results/training_outputs"
+        "--output_dir",
+        type=str,
+        default="results/training_outputs/",
+        help="Directory to save training outputs (checkpoints, logs, etc.)",
     )
 
     # TODO does it make sense to enlarge the img_size to 640?
@@ -582,8 +585,7 @@ def main():
 
     # TODO what about using resnet50 as encoder?
     # It has more parameters and might improve performance, but it will also
-    # increase training time and memory usage. We can experiment with both
-    # resnet34 and resnet50 to see which one gives better results for our specific dataset.
+    # increase training time and memory usage.
 
     # --- Model ---
     model = smp.Unet(

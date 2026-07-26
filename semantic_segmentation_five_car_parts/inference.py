@@ -3,35 +3,8 @@ inference.py — run the trained car part segmentation model on a directory
 of test images and save single-channel prediction masks.
 
 Usage:
-    python3 inference.py --input path/to/test_images --output path/to/predictions
+    python inference.py --input path/to/test_images --output_dir path/to/predictions
 
-By default, preprocessing settings (img_size, pad_to_square, bbox crop
-threshold/margin) are read automatically from the config.yaml saved next to
-best_model.pth during training -- this guarantees inference uses EXACTLY the
-same preprocessing as training, which matters a lot here: a mismatch (e.g.
-training with pad_to_square=True but inferring with plain resize) would
-silently distort part geometry and tank accuracy without any error message.
-
-Preprocessing pipeline per image (mirrors train.py's val/test transform):
-    1. Crop to the detected car bounding box (crop_to_object) -- removes the
-       large background canvas so resolution is spent on the car itself.
-    2. Resize to img_size x img_size, either by:
-         - plain stretch (pad_to_square=False), or
-         - letterbox: scale longest side to img_size, pad the rest with
-           background (pad_to_square=True) -- reimplemented manually here
-           with cv2 (rather than calling albumentations) so the exact scale
-           and padding offsets are known and can be inverted precisely.
-    3. Normalize with ImageNet mean/std, run through the model.
-    4. Invert step 2 (crop out padding if letterboxed, resize prediction
-       back to the crop's pixel dimensions using NEAREST interpolation --
-       critical, since bilinear would blend class indices into invalid
-       intermediate values).
-    5. Paste the crop-sized prediction back onto a full-size canvas matching
-       the original image dimensions, with everything outside the crop set
-       to background (class 0) -- correct, since that region genuinely is
-       background canvas.
-    6. Map class indices (0..5) back to the raw label values the assignment
-       specifies (0, 32, 64, 96, 128, 160) and save as a single-channel PNG.
 """
 
 import argparse
@@ -59,7 +32,7 @@ STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 # match, so a loud warning is printed if it's ever used.
 FALLBACK_DEFAULTS = {
     "img_size": 512,
-    "pad_to_square": False,
+    "pad_to_square": True,
     "no_bbox_crop": False,
     "bbox_threshold": 20.0,
     "bbox_margin": 0.03,
@@ -287,7 +260,7 @@ def save_inference_report(
         "run_info": {
             "timestamp": datetime.now().isoformat(timespec="seconds"),
             "input_dir": str(args.input),
-            "output_dir": str(args.output),
+            "output_dir": str(args.output_dir),
             "model_path": str(model_path),
             "config_path_used": (
                 str(config_path) if config_path.exists() else None

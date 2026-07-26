@@ -1,43 +1,134 @@
 # five_car_parts_semantic_segmentation
 A project of semantic segmentation on five car parts
 
-##
-# Class-imbalance check
+## Installation
 
+### Using `uv`
+It is recommanded to use `uv` to install the project dependencies. Make sure to install `uv` beforehand.
 
-
-## Use TensorBoard to monitor Training process
-1. Add tensorboard to your dependencies:
-
+#### Install `uv`
+One-liner (official installer):
 ```bash
-uv add tensorboard
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
-2. Run training as normal — it now writes logs to runs/ (configurable via --log_dir):
-
+Then either restart your shell or reload your PATH:
 ```bash
-uv run python train.py --images_dir data/train/images --masks_dir data/train/masks --pad_to_square
+source $HOME/.local/bin/env
 ```
-3. In a separate terminal, launch the dashboard:
+Verify by:
+```bash
+uv --version
+```
+#### Install dependencies
 
+Given existing `pyproject.toml` and `uv.lock`, run:
+```bash
+uv sync
+```
+The dependencies will be installed automatically.
+
+#### Verify PyTorch to GPU
+After installing dependencies, make sure that GPU is usable with installed PyTorch and CUDA version. Run:
+```bash
+uv run python -c "
+import torch
+print('torch:', torch.__version__)
+print('cuda available:', torch.cuda.is_available())
+print('compute capability:', torch.cuda.get_device_capability())  # expect (12, 0)
+t = torch.tensor([2.0]).cuda()
+print('real GPU compute test:', (t * t).item())  # this is the test that actually matters
+"
+```
+If the last line runs without a `no kernel image error` and prints `4.0`, you are set up correctly.
+
+
+
+### Using `pip`
+Dependencies can also be installed using `pip` based on the existing `requirements.txt`. After creating a virtual environment, activate that `.venv` and run:
+```bash
+pip install -r requirements.txt
+```
+
+
+## Data Pre-processing
+
+### Compute Class Statistics
+The script `class_statistics.py` loads the image masks from train dataset to calculate class distribution/statistics of the train dataset for a better overview of the train dataset/class imbalance.
+
+Command to run the script:
+```bash
+uv run python semantic_segmentation_five_car_parts/class_statistics.py
+```
+The class statistics are in file `semantic_segmentation_five_car_parts/class_statistics_report` and `semantic_segmentation_five_car_parts/class_statistics_report.json`
+
+
+### Crop Images
+Images in the given dataset (both `/train` and `/test`) have large area of background, which is irrelevant for semantic segmentation of car parts and can be removed for training and testing.
+Script `bbox_utils.py` includes functions to compute bounding box that covers only car parts and background nearby, and excludes other surrounding background. This functionality will be used in creating PyTorch Dataset for training.
+
+Script `check_crops.py` visualizes this cropping functionality on several sample images.
+
+Script `crop_dataset.py` computes all cropped images and masks in the training dataset. It saves them as well for further checks.
+
+### Image Augmentation
+For a robust training result and to enrich training dataset with limited amount, image augmentation is applied within `train.py`. Script `check_augmentations.py` visualizes augmentation results by running:
+```bash
+uv run python semantic_segmentation_five_car_parts/check_augmentations.py \
+    --images_dir data/train/images \
+    --masks_dir data/train/masks \
+    --output_dir data/aug_checks/
+```
+Augmentated images will be saved in the `output_dir`.
+
+## Training
+Run following command to start training the model:
+```bash
+uv run python train.py \
+    --images_dir data/train/images \
+    --masks_dir data/train/masks \
+    --pad_to_square
+```
+See script `train.py` for possible parameter configuration.
+
+### Monitor Training Process using TensorBoard
+During training, launch the dashboard in a separate terminal:
 ```bash
 uv run tensorboard --logdir results/training_outputs/training_runs
 ```
 
-## Resume training
+### Resume Training
+To resume a Training using an existing weights, run command:
 ```bash
-uv run python semantic_segmentation_five_car_parts/train.py --images_dir data/train/images --masks_dir data/train/masks     --resume_from results/training_outputs/training_run_initial/best_model.pth     --epochs 40 --pad_to_square 
+uv run python semantic_segmentation_five_car_parts/train.py \
+    --images_dir data/train/images \
+    --masks_dir data/train/masks \
+    --resume_from results/training_outputs/training_run_initial/best_model.pth \
+    --epochs 40 \
+    --pad_to_square 
 ```
-
 
 ## Inference
+After training is finished, script `inference.py` can be called to run inference on test dataset using trained model:
 ```bash
-uv run python semantic_segmentation_five_car_parts/inference.py --input data/test/images --output data/test/masks --config_path outputs/config_2026-07-23_16-22-38.yaml
+uv run python semantic_segmentation_five_car_parts/inference.py \
+    --input data/test/images \
+    --output data/test/masks \
+    --config_path results/training_outputs/training_run_2026-07-23_19-15-23/config_2026-07-23_19-15-23.yaml
 ```
+Inference results (image masks) are saved in the output directory.
 
-Check inference results
+### Visualize Inference Results
+Script `check_predictions.py` visualizes the inference results by overlaying the predicted masks on the images. Run:
 ```bash
-uv run python semantic_segmentation_five_car_parts/check_predictions.py --images_dir data/test/images/ --masks_dir data/test/masks/ --output_dir data/test/check_predictions
+uv run python semantic_segmentation_five_car_parts/check_predictions.py \
+    --images_dir data/test/images/ \
+    --masks_dir data/test/masks/ \
+    --output_dir data/test/check_predictions
 ```
+Images with predicted masks can be found in `output_dir`.
+
+
+
 
 
 ## Notes
@@ -67,32 +158,4 @@ If that last line runs without a `no kernel image error` and prints `4.0`, you'r
 Take the best model from results/training_outputs/training_run_2026-07-23_19-15-23/best_model.pth with "val_mIoU": 0.7298329935732258
 
 
-
-
-
-
-### Implementation steps
-1. check class balance with class_statistics_report, to get image numbers and pixel numbers of each class
-1. crop training images and masks to remove background parts (keep some, but remove unnecessary large amounts) that are unnecessary for training
-1. split train and validation sets (90/10) considering class distribution
-    a. categorize images according to class, in each class take 90% for training and 10% for validation
-1. image augmentation (albumentations)
-1. start training using TensorBoard to monitor training process
-1. use the best model weights with the highest val_mIoU to run inference
-1. validate inference results by visually check the mask quality
-
-
-
-## Lessons-learned
-1. (door handles) Plausible, genuinely good explanation: Door handles likely have strong local visual contrast (different material/color against a painted door panel) and a fairly consistent shape/location — easy for a CNN to localize precisely once detected. Meanwhile, Front Door/Rear Door/Fender boundaries are often subtle body-panel creases against each other, not against a clean background — genuinely harder to delineate with pixel-precision even though they're "big, easy" classes on paper. Your Dice+CE weighting strategy may have simply worked exactly as designed here.
-
-2. (go on training until platenau is reached) Epoch 59 of a 60-epoch budget — this means early stopping (patience=12) never triggered, so val mIoU was still improving (or at least hadn't plateaued for 12 straight epochs) right up to your cap. That's actually good news framed one way ("didn't need early stopping, model kept legitimately improving") but also means you may be leaving performance on the table — if you'd had --epochs 100, it's plausible mIoU keeps climbing further. Worth checking the TensorBoard IoU/mean_val curve's trend in the last 10-15 epochs: if it's still trending up (not flattened), that's your strongest lever for a meaningful improvement with minimal extra effort — just extend the epoch budget and rerun.
-
-3. (less data points from front fender with the weakest per class IoU)
-
-6. consider tunning hyper-parameter
-
-4. consider class distribution in train/val splitting
-
-5. consider ResNet50 with more dimensions
 

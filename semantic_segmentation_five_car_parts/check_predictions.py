@@ -7,7 +7,7 @@ For each image, saves a side-by-side PNG:
     [ original image ]  [ image with predicted mask overlaid ]
 
 Usage:
-    python3 check_predictions.py --images_dir ../data/test/images \
+    python check_predictions.py --images_dir ../data/test/images \
         --masks_dir ../data/test/predictions --output_dir ../data/test/prediction_checks
 """
 
@@ -130,10 +130,14 @@ def main():
         panel = side_by_side(Image.fromarray(image), Image.fromarray(overlaid))
 
         final = Image.new(
-            "RGB", (panel.width, panel.height + legend.height), color=(255, 255, 255)
+            "RGB",
+            (panel.width, panel.height + legend.height),
+            color=(255, 255, 255),
         )
         final.paste(panel, (0, 0))
-        final.paste(legend.resize((panel.width, legend.height)), (0, panel.height))
+        final.paste(
+            legend.resize((panel.width, legend.height)), (0, panel.height)
+        )
 
         final.save(output_dir / f"{img_path.stem}_pred_check.png")
 
